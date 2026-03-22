@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="fr">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Compteur électrique IoT</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- Firebase -->
+    
+
+    <style>
+        :root {
+            --bg: #0f1724;
+            --card: #0b1220;
+            --muted: #9aa7bf;
+            --accent: #00c2a8;
+            font-family: Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Arial;
+        }
+
+        html,
+        body {
+           margin: 0;
+    padding: 0;
+    min-height: 100%;
+    width: 100%;
+    overflow-y: auto;
+            background: linear-gradient(180deg, #071026 0%, #071827 100%);
+            color: #e6eef6;
+        }
+
+        .wrap {
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+            align-items: stretch;
+            height: 100%;
+            padding: 10px;
+            box-sizing: border-box;
+            gap: 10px;
+        }
+
+        .card {
+            background: var(--card);
+            padding: 14px;
+            border-radius: 12px;
+            text-align: center;
+            flex-shrink: 0;
+            box-sizing: border-box;
+            transition: background 0.3s ease;
+        }
+
+        /* Bloc KPI horizontal */
+        .kpi-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .tension-status {
+            font-size: 14px;
+            margin-top: 4px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+
+        .normal {
+            color: #00ffae;
+        }
+
+        .faible {
+            color: #ffcc00;
+        }
+
+        .elevee {
+            color: #ff4d4d;
+        }
+
+        .tension-normal-bg {
+            background: linear-gradient(180deg, #0b1220, #063b29);
+        }
+
+        .tension-faible-bg {
+            background: linear-gradient(180deg, #0b1220, #4a3d0d);
+        }
+
+        .tension-elevee-bg {
+            background: linear-gradient(180deg, #0b1220, #4a0d0d);
+        }
+
+        .kpi-button {
+            width: 60%;
+            padding: 10px 0;
+            border: none;
+            border-radius: 8px;
+            background: var(--accent);
+            color: #fff;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        .kpi-button.on {
+            background: #00c2a8;
+        }
+
+        .kpi-button.off {
+            background: #ff4d4d;
+        }
+
+        .chartWrap {
+            height: 100%;
+        }
+
+        canvas {
+            width: 100% !important;
+            height: 100% !important;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="wrap">
+
+        <h1 style="
+            text-align: center;
+            color: #007BFF;
+            text-transform: uppercase;
+            border-bottom: px solid #007BFF;
+            display: inline-block;
+            padding-bottom: 5px;
+        ">
+            SYSTEME CONNECTE INTELLIGENT , INTEGRATION DU PV DANS LE RESEAU SNEL
+        </h1>
+
+        <!-- Tension -->
+        <div class="card kpi" id="tensionCard">
+            <div class="kpi-row">
+                <span>Tension :</span>
+                <span id="voltVal">-- V</span>
+            </div>
+            <p id="voltStatus" class="tension-status">--</p>
+        </div>
+
+        <!-- Courant -->
+        <div class="card kpi">
+            <div class="kpi-row">
+                <span>Courant :</span>
+                <span id="curVal">-- A</span>
+            </div>
+        </div>
+
+        <!-- Puissance -->
+        <div class="card kpi">
+            <div class="kpi-row">
+                <span>Puissance :</span>
+                <span id="powerVal">-- W</span>
+            </div>
+        </div>
+
+        <!-- Bouton ON/OFF -->
+        <div class="card">
+            <div class="kpi-row">
+                <span>Action :</span>
+                <button id="myBtn" class="kpi-button">ON</button>
+            </div>
+        </div>
+
+        <!-- Graphique -->
+        <div class="card">
+            <h3>Consommation temps-réel</h3>
+            <div class="chartWrap">
+                <canvas id="powerChart"></canvas>
+            </div>
+        </div>
+
+    </div>
+
+   <script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-app.js";
+import { getDatabase, ref, onValue, set } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-database.js";
+
+// ✅ NOUVELLE CONFIG FIREBASE
+const firebaseConfig = {
+    apiKey: "AIzaSyArEB0lH1tz3OOvrgKzL0cypYfMpQVgPm0",
+    authDomain: "maison-iot-b0dd6.firebaseapp.com",
+    databaseURL: "https://maison-iot-b0dd6-default-rtdb.firebaseio.com",
+    projectId: "maison-iot-b0dd6",
+    storageBucket: "maison-iot-b0dd6.appspot.com",
+    messagingSenderId: "838021465845",
+    appId: "1:838021465845:web:b277f02fd883b0c23627bc"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+// DOM
+const curValEl = document.getElementById('curVal');
+const voltValEl = document.getElementById('voltVal');
+const voltStatusEl = document.getElementById('voltStatus');
+const tensionCard = document.getElementById('tensionCard');
+const powerValEl = document.getElementById('powerVal');
+const btn = document.getElementById("myBtn");
+
+// Graphique
+const powerChartCtx = document.getElementById('powerChart').getContext('2d');
+const powerChart = new Chart(powerChartCtx, {
+    type: 'line',
+    data: {
+        labels: [],
+        datasets: [{
+            label: 'Puissance (W)',
+            data: [],
+            borderColor: '#00c2a8',
+            tension: 0.25
+        }]
+    },
+    options: {
+        plugins: { legend: { display: false } },
+        scales: { y: { beginAtZero: true } }
+    }
+});
+
+function pushValue(chart, val, label) {
+    chart.data.datasets[0].data.push(val);
+    chart.data.labels.push(label);
+
+    if (chart.data.datasets[0].data.length > 15) {
+        chart.data.datasets[0].data.shift();
+        chart.data.labels.shift();
+    }
+
+    chart.update('none');
+}
+
+// ---------------- HISTORIQUE ----------------
+const histoRef = ref(db, 'compteur/historique');
+onValue(histoRef, snapshot => {
+    const data = snapshot.val();
+    if (!data) return;
+
+    powerChart.data.labels = [];
+    powerChart.data.datasets[0].data = [];
+
+    Object.keys(data).slice(-15).forEach(ts => {
+        const d = new Date(parseInt(ts) * 1000).toLocaleTimeString();
+        const power = data[ts].puissance || 0;
+        pushValue(powerChart, power, d);
+    });
+});
+
+// ---------------- TEMPS REEL ----------------
+const realtimeRef = ref(db, 'compteur/realtime');
+onValue(realtimeRef, snapshot => {
+    const data = snapshot.val();
+    if (!data) return;
+
+    const cur = data.courant || 0;      // RMS réel du capteur
+    const volt = data.tension || 0;
+    const action = data.action || 0;
+
+    const power = (cur * volt).toFixed(2);
+
+    // Affichage
+    curValEl.innerText = cur.toFixed(3) + ' A';   // 3 décimales pour précision
+    voltValEl.innerText = volt.toFixed(2) + ' V';
+    powerValEl.innerText = power + ' W';
+
+    // -------- TENSION STATUS --------
+    if (volt >= 180 && volt <= 240) {
+        voltStatusEl.innerHTML = "✅ Tension normale";
+        voltStatusEl.className = "tension-status normal";
+        tensionCard.className = "card kpi tension-normal-bg";
+    } else if (volt < 180 && volt > 0) {
+        voltStatusEl.innerHTML = "⚠️ Tension faible";
+        voltStatusEl.className = "tension-status faible";
+        tensionCard.className = "card kpi tension-faible-bg";
+    } else if (volt > 240) {
+        voltStatusEl.innerHTML = "⚠️ Tension élevée";
+        voltStatusEl.className = "tension-status elevee";
+        tensionCard.className = "card kpi tension-elevee-bg";
+    } else {
+        voltStatusEl.innerHTML = "--";
+    }
+
+    // -------- RELAIS 1 (MANUEL) --------
+    if (action == 1) {
+        btn.classList.add("on");
+        btn.classList.remove("off");
+        btn.innerText = "ON";
+    } else {
+        btn.classList.add("off");
+        btn.classList.remove("on");
+        btn.innerText = "OFF";
+    }
+
+    // -------- RELAIS 2 (AUTO ≥ 500W) --------
+    if (power >= 500) {
+        console.log("Relais 2 actif (Auto)");
+    }
+
+    // Graph update
+    const d = new Date().toLocaleTimeString();
+    pushValue(powerChart, parseFloat(power), d);
+});
+
+// ---------------- BOUTON ----------------
+btn.addEventListener("click", () => {
+    const newAction = btn.classList.contains("on") ? 0 : 1;
+    set(ref(db, 'compteur/realtime/action'), newAction);
+});
+</script>
+
+</body>
+
+</html>
